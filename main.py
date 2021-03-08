@@ -110,12 +110,36 @@ def extract_title_region_date(image):
 def export_csv_data(starts_from, cloud, temperature, rain):
     f = open("ankara_meteogram_csv.txt", "w", newline="")
     writer = csv.writer(f)
+    date_start = datetime.datetime(starts_from[0], starts_from[1], starts_from[2], starts_from[3]) #year,month,day,hour
+
+    for i in range(0,72):
+        date_for_this_point = date_start+datetime.timedelta(hours=i)
+
+        stamped_data = (date_start, date_for_this_point, cloud[i], temperature[i], rain[i])
+        writer.writerow(stamped_data)
+    f.close()
+def export_easy_to_read_data(starts_from, cloud, temperature, rain):
+    f = open("ankara_meteogram_easy_to_read.txt", "w", newline="")
+    writer = csv.writer(f)
+    writer.writerow(["    datetime", "        cloud", "temperature", "rain"])
+    max_digit = 1
+    for accuracy in decimal_accuracy:
+        if(accuracy > max_digit):
+            max_digit = accuracy
+    max_digit += 4 #xx. -> additional 3
 
     date_start = datetime.datetime(starts_from[0], starts_from[1], starts_from[2], starts_from[3]) #year,month,day,hour
 
     for i in range(0,72):
         date_for_this_point = date_start+datetime.timedelta(hours=i)
-        stamped_data = (date_start, date_for_this_point, cloud[i] , temperature[i], rain[i])
+
+        data_string = [str(cloud[i]), str(temperature[i]), str(rain[i])]
+        counter = 0
+        for string in data_string:
+           string = string + " "* ( (max_digit - len(string) ))
+           data_string[counter] = string
+           counter +=1
+        stamped_data = (date_for_this_point, "   "+data_string[0] , data_string[1], data_string[2])
         writer.writerow(stamped_data)
     f.close()
 
@@ -153,6 +177,7 @@ temperature = initiliaze_temperature_pixels (image_array, image, temperature_pix
 rain = extract_data(image_array, 2)
 
 export_csv_data(date_array, cloud, temperature, rain)
+export_easy_to_read_data(date_array, cloud, temperature, rain)
 ########################################################################################################################
 
 
