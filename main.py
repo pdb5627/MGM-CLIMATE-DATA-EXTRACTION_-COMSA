@@ -17,7 +17,7 @@ import datetime
 horizontal_pixels = [79,89,99,110,120,131,141,152,162,172,183,193,204,214,225,235,245,256,266,277,287,298,308,319,329,339,350,360,371,381,392,402,412,423,433,444,454,465,475,486,496,506,517,527,538,548,559,569,579,590,600,611,621,632,642,653,663,673,684,694,705,715,726,736,746,757,767,778,788,799,809,820]
 top_and_bottoms = [119,234,313,528,589,705] # cloud, temperature, rain
 decimal_accuracy = [3, 1, 2] # rounds cloud,temperature and rain values
-mm_per_mSquare_per_px =0.520 #if there is no catastrophic event, good approximation for ankara model!
+mm_per_mSquare_per_px =0.0650 #if there is no catastrophic event, good approximation for ankara model!
 def extract_data(image_array, which_data):
     #which_data-> 0: cloud 1:temp 2:rain
     return_data = []
@@ -132,7 +132,6 @@ def export_easy_to_read_data(starts_from, cloud, temperature, rain):
 
     for i in range(0,72):
         date_for_this_point = date_start+datetime.timedelta(hours=i)
-
         data_string = [str(cloud[i]), str(temperature[i]), str(rain[i])]
         counter = 0
         for string in data_string:
