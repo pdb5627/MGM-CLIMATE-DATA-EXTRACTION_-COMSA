@@ -3,6 +3,7 @@
 
 #tutorial on tesseract: https://stackoverflow.com/questions/50951955/pytesseract-tesseractnotfound-error-tesseract-is-not-installed-or-its-not-i
 #download tesseract: https://github.com/UB-Mannheim/tesseract/wiki
+
 from PIL import Image
 import urllib.request
 import numpy as np
@@ -11,9 +12,11 @@ import sys
 import csv
 import datetime
 
-#EXTRACT DATA script
+########################################################################################################################
+#FUNCTIONS
 horizontal_pixels = [79,89,99,110,120,131,141,152,162,172,183,193,204,214,225,235,245,256,266,277,287,298,308,319,329,339,350,360,371,381,392,402,412,423,433,444,454,465,475,486,496,506,517,527,538,548,559,569,579,590,600,611,621,632,642,653,663,673,684,694,705,715,726,736,746,757,767,778,788,799,809,820]
-top_and_bottoms = [120,234,313,528,589,705] # cloud, temperature, rain
+top_and_bottoms = [119,234,313,528,589,705] # cloud, temperature, rain
+decimal_accuracy = [3, 1, 2] # rounds cloud,temperature and rain values
 mm_per_mSquare_per_px =0.520 #if there is no catastrophic event, good approximation for ankara model!
 def extract_data(image_array, which_data):
     #which_data-> 0: cloud 1:temp 2:rain
@@ -32,11 +35,13 @@ def extract_data(image_array, which_data):
             if ( R!=G and G!=B):
                 if(which_data == 0): #cloud
                     percentage_dec = (top_and_bottoms[1]-y) / (top_and_bottoms[1] - top_and_bottoms[0])
+                    percentage_dec = round(percentage_dec, decimal_accuracy[0])
                     return_data.append(percentage_dec)
                     is_zero = False
                     break
                 elif(which_data == 2): #rain
                     rain_mm = (top_and_bottoms[5] - y) * mm_per_mSquare_per_px
+                    rain_mm = round(rain_mm, decimal_accuracy[2])
                     return_data.append(rain_mm)
                     is_zero = False
                     break
@@ -52,7 +57,7 @@ def extract_data(image_array, which_data):
                 value_before_this = return_data[temperature_counter-1]
                 return_data.append(value_before_this)
                 temperature_counter += 1
-            else:
+            else: #cloud & rain
                 return_data.append(0)
 
     return return_data
@@ -81,6 +86,7 @@ def initiliaze_temperature_pixels (image_array, image, temperature_pixel_data_ar
     slope = dt / dpx
     for px in temperature_pixel_data_array:
         val = (px - vertical_candidates[0]) * slope + values_of_temp_scale_lines[0]  # line equation
+        val = round(val, decimal_accuracy[1])
         real_temperatures.append(val)
     return real_temperatures
 def get_date_as_number(date_text):
@@ -108,13 +114,12 @@ def export_csv_data(starts_from, cloud, temperature, rain):
     date_start = datetime.datetime(starts_from[0], starts_from[1], starts_from[2], starts_from[3]) #year,month,day,hour
 
     for i in range(0,72):
-
         date_for_this_point = date_start+datetime.timedelta(hours=i)
         stamped_data = (date_start, date_for_this_point, cloud[i] , temperature[i], rain[i])
         writer.writerow(stamped_data)
     f.close()
 
-###########################################################################
+########################################################################################################################
 #OVERWRITE OR DOWNLOAD METEOGRAM IMAGE AS PNG
 #tutorial: https://youtu.be/2Rf01wfbQLk
 url = "https://www.mgm.gov.tr//FTPDATA/sht/mm5/Ankara.png"
