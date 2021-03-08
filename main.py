@@ -163,7 +163,8 @@ image_array = np.array(image)
 texts = extract_title_region_date(image)
 ##
 if(texts[0] != "WRF METEOGRAM" or texts[1]!="Ankara"):
-    sys.exit(0)
+   print("wrong image")
+   sys.exit(0) #does not allow program to overwrite existing data.
 ########################################################################################################################
 #EXPORT AS CSV FILE
 date_array = get_date_as_number(texts[2]) ## year, month, day, shift
