@@ -1,23 +1,28 @@
 ## Author: ERDEM CANAZ
 ## email : erdemcanaz@gmail.com
-
-#tutorial on tesseract: https://stackoverflow.com/questions/50951955/pytesseract-tesseractnotfound-error-tesseract-is-not-installed-or-its-not-i
-#download tesseract: https://github.com/UB-Mannheim/tesseract/wiki
+## Modifications by Paul Brown
+## https://github.com/user/pdb5627
 
 from PIL import Image
 import urllib.request
 import numpy as np
 import pytesseract
-import sys
+import os, sys
 import csv
 import datetime
 
-########################################################################################################################
-#FUNCTIONS
+
+class ImageParseError(Exception):
+    """ Raised when there is a problem getting data out of the meteogram image. """
+    pass
+
+
 horizontal_pixels = [79,89,99,110,120,131,141,152,162,172,183,193,204,214,225,235,245,256,266,277,287,298,308,319,329,339,350,360,371,381,392,402,412,423,433,444,454,465,475,486,496,506,517,527,538,548,559,569,579,590,600,611,621,632,642,653,663,673,684,694,705,715,726,736,746,757,767,778,788,799,809,820]
 top_and_bottoms = [119,234,313,528,589,705] # cloud, temperature, rain
 decimal_accuracy = [3, 1, 2] # rounds cloud,temperature and rain values
 mm_per_mSquare_per_px =0.0650 #if there is no catastrophic event, good approximation for ankara model!
+
+
 def extract_data(image_array, which_data):
     #which_data-> 0: cloud 1:temp 2:rain
     return_data = []
@@ -61,6 +66,8 @@ def extract_data(image_array, which_data):
                 return_data.append(0)
 
     return return_data
+
+
 def initiliaze_temperature_pixels (image_array, image, temperature_pixel_data_array):
     temp_graph_left = 80
     temp_scale_top = 296
@@ -89,6 +96,8 @@ def initiliaze_temperature_pixels (image_array, image, temperature_pixel_data_ar
         val = round(val, decimal_accuracy[1])
         real_temperatures.append(val)
     return real_temperatures
+
+
 def get_date_as_number(date_text):
     day = 10 * int(date_text[0]) + int(date_text[1])
     month = 10 * int(date_text[3]) + int(date_text[4])
@@ -96,6 +105,8 @@ def get_date_as_number(date_text):
     shift = 10 * int(date_text[11]) + int(date_text[12])
     date_array = [year, month, day, shift]
     return date_array
+
+
 def extract_title_region_date(image):
     title = image.crop((338, 16, 560, 41))
     title_text = pytesseract.image_to_string(title, lang='eng')[:-2]
@@ -107,80 +118,79 @@ def extract_title_region_date(image):
     date_text = pytesseract.image_to_string(date, lang='eng')[:-2]
     return_text = [title_text, region_text, date_text]
     return return_text
-def export_csv_data(starts_from, cloud, temperature, rain):
-    f = open("ankara_meteogram_csv.txt", "w", newline="")
-    writer = csv.writer(f)
-    date_start = datetime.datetime(starts_from[0], starts_from[1], starts_from[2], starts_from[3]) #year,month,day,hour
-
-    for i in range(0,72):
-        date_for_this_point = date_start+datetime.timedelta(hours=i)
-
-        stamped_data = (date_start, date_for_this_point, cloud[i], temperature[i], rain[i])
-        writer.writerow(stamped_data)
-    f.close()
-def export_easy_to_read_data(starts_from, cloud, temperature, rain):
-    f = open("ankara_meteogram_easy_to_read.txt", "w", newline="")
-    writer = csv.writer(f)
-    writer.writerow(["    datetime", "        cloud", "temperature", "rain"])
-    max_digit = 1
-    for accuracy in decimal_accuracy:
-        if(accuracy > max_digit):
-            max_digit = accuracy
-    max_digit += 4 #xx. -> additional 3
-
-    date_start = datetime.datetime(starts_from[0], starts_from[1], starts_from[2], starts_from[3]) #year,month,day,hour
-
-    for i in range(0,72):
-        date_for_this_point = date_start+datetime.timedelta(hours=i)
-        data_string = [str(cloud[i]), str(temperature[i]), str(rain[i])]
-        counter = 0
-        for string in data_string:
-           string = string + " "* ( (max_digit - len(string) ))
-           data_string[counter] = string
-           counter +=1
-        stamped_data = (date_for_this_point, "   "+data_string[0] , data_string[1], data_string[2])
-        writer.writerow(stamped_data)
-    f.close()
-
-########################################################################################################################
-#OVERWRITE OR DOWNLOAD METEOGRAM IMAGE AS PNG
-#tutorial: https://youtu.be/2Rf01wfbQLk
-url = "https://www.mgm.gov.tr//FTPDATA/sht/mm5/Ankara.png"
-save_image_name = "ankara_meteogram"
-save_image_as = ".png"
-save_image_path = ''
-full_path = save_image_path + save_image_name + save_image_as
-
-where_tesseract_exe_is_located = "Tesseract-OCR\\tesseract.exe" #generally located at: 'C:\Program Files\Tesseract-OCR\\tesseract.exe'
-pytesseract.pytesseract.tesseract_cmd = where_tesseract_exe_is_located
-
-urllib.request.urlretrieve(url, full_path) ## download the image
-########################################################################################################################
-#CHECK WHETHER THE IMAGE IS CORRECT OR NOT AND CONVERT IT TO ARRAY
-image = Image.open("ankara_meteogram.png")
-image_array = np.array(image)
-
-texts = extract_title_region_date(image)
-##
-if(texts[0] != "WRF METEOGRAM" or texts[1]!="Ankara"):
-   print("wrong image")
-   sys.exit(0) #does not allow program to overwrite existing data.
-########################################################################################################################
-#EXPORT AS CSV FILE
-date_array = get_date_as_number(texts[2]) ## year, month, day, shift
-
-cloud = extract_data(image_array, 0)
-
-temperature_pixels=extract_data(image_array, 1)
-temperature = initiliaze_temperature_pixels (image_array, image, temperature_pixels)
-
-rain = extract_data(image_array, 2)
-
-export_csv_data(date_array, cloud, temperature, rain)
-export_easy_to_read_data(date_array, cloud, temperature, rain)
-########################################################################################################################
 
 
+def export_csv_data(fname, starts_from, cloud, temperature, rain):
+    with open(fname, "w", newline="") as f:
+        writer = csv.writer(f)
+        date_start = datetime.datetime(starts_from[0], starts_from[1], starts_from[2], starts_from[3]) #year,month,day,hour
+
+        for i in range(0,72):
+            date_for_this_point = date_start+datetime.timedelta(hours=i)
+
+            stamped_data = (date_start, date_for_this_point, cloud[i], temperature[i], rain[i])
+            writer.writerow(stamped_data)
+
+
+def export_easy_to_read_data(fname, starts_from, cloud, temperature, rain):
+    with open(fname, "w", newline="") as f:
+        writer = csv.writer(f)
+        writer.writerow(["    datetime", "        cloud", "temperature", "rain"])
+        max_digit = 1
+        for accuracy in decimal_accuracy:
+            if(accuracy > max_digit):
+                max_digit = accuracy
+        max_digit += 4 #xx. -> additional 3
+
+        date_start = datetime.datetime(starts_from[0], starts_from[1], starts_from[2], starts_from[3]) #year,month,day,hour
+
+        for i in range(0,72):
+            date_for_this_point = date_start+datetime.timedelta(hours=i)
+            data_string = [str(cloud[i]), str(temperature[i]), str(rain[i])]
+            counter = 0
+            for string in data_string:
+               string = string + " "* ( (max_digit - len(string) ))
+               data_string[counter] = string
+               counter +=1
+            stamped_data = (date_for_this_point, "   "+data_string[0] , data_string[1], data_string[2])
+            writer.writerow(stamped_data)
+
+
+def extract_meteogram_data(image):
+    image_array = np.array(image)
+
+    texts = extract_title_region_date(image)
+
+    if(texts[0] != "WRF METEOGRAM"):
+       raise ImageParseError("Image does not appear to be as expected. Text 'WRF METEOGRAM' not found.")
+
+    date_array = get_date_as_number(texts[2]) ## year, month, day, shift
+
+    cloud = extract_data(image_array, 0)
+
+    temperature_pixels=extract_data(image_array, 1)
+    temperature = initiliaze_temperature_pixels (image_array, image, temperature_pixels)
+
+    rain = extract_data(image_array, 2)
+
+    return date_array, cloud, temperature, rain
+
+
+def main(argv=None):
+    if argv is None:
+        argv = sys.argv
+
+    for fname in argv[1:]:
+        file, ext = os.path.splitext(fname)
+
+        image = Image.open(fname)
+        date_array, cloud, temperature, rain = extract_meteogram_data(image)
+        export_csv_data(file+'.csv', date_array, cloud, temperature, rain)
+        export_easy_to_read_data(file+'.txt', date_array, cloud, temperature, rain)
+
+
+if __name__ == '__main__':
+    sys.exit(main())
 
 
 
