@@ -5,12 +5,12 @@
 import string
 
 from PIL import Image
-import urllib.request
 import numpy as np
 import pytesseract
 import os, sys
 import csv
 import datetime
+import pandas as pd
 
 import logging
 logging.basicConfig(level=logging.INFO)
@@ -22,10 +22,11 @@ class ImageParseError(Exception):
     pass
 
 
-horizontal_pixels = [79,89,99,110,120,131,141,152,162,172,183,193,204,214,225,235,245,256,266,277,287,298,308,319,329,339,350,360,371,381,392,402,412,423,433,444,454,465,475,486,496,506,517,527,538,548,559,569,579,590,600,611,621,632,642,653,663,673,684,694,705,715,726,736,746,757,767,778,788,799,809,820]
+horizontal_pixels = [79,89,99,110,120,131,141,152,162,172,183,193,204,214,225,235,245,256,266,277,287,298,308,319,
+                     329,339,350,360,371,381,392,402,412,423,433,444,454,465,475,486,496,506,517,527,538,548,559,569,
+                     579,590,600,611,621,632,642,653,663,673,684,694,705,715,726,736,746,757,767,778,788,799,809,820]
 top_and_bottoms = [119,234,313,528,589,705] # cloud, temperature, rain
-decimal_accuracy = [3, 1, 2] # rounds cloud,temperature and rain values
-mm_per_mSquare_per_px =0.0650 #if there is no catastrophic event, good approximation for ankara model!
+mm_per_mSquare_per_px = 0.0650 # if there is no catastrophic event, good approximation for ankara model!
 
 
 def extract_data(image_array, which_data):
@@ -45,12 +46,10 @@ def extract_data(image_array, which_data):
             if not is_gray:
                 if which_data == 0: #cloud
                     percentage_dec = (top_and_bottoms[1]-y) / (top_and_bottoms[1] - top_and_bottoms[0])
-                    percentage_dec = round(percentage_dec, decimal_accuracy[0])
                     return_data.append(percentage_dec)
                     break
                 elif which_data == 2: #rain
                     rain_mm = (top_and_bottoms[5] - y) * mm_per_mSquare_per_px
-                    rain_mm = round(rain_mm, decimal_accuracy[2])
                     return_data.append(rain_mm)
                     break
                 elif which_data == 1: # temperature
@@ -73,7 +72,7 @@ def extract_data(image_array, which_data):
     return return_data
 
 
-def initiliaze_temperature_pixels (image_array, image, temperature_pixel_data_array):
+def scale_temperature_pixels (image_array, image, temperature_pixel_data_array):
     temp_graph_left = 80
     temp_scale_top = 296
     temp_scale_bottom = 528
@@ -110,89 +109,48 @@ def initiliaze_temperature_pixels (image_array, image, temperature_pixel_data_ar
     slope = dt / dpx
     for px in temperature_pixel_data_array:
         val = (px - vertical_candidates[pts[0]]) * slope + values_of_temp_scale_lines[pts[0]]  # line equation
-        val = round(val, decimal_accuracy[1])
         real_temperatures.append(val)
     return real_temperatures
 
 
-def get_date_as_number(date_text):
-    # Sometimes a 0 might be misread as an O. There is no reason for an O to appear in this text, so change any Os to 0s
-    date_text = date_text.replace('O', '0')
-    day = 10 * int(date_text[0]) + int(date_text[1])
-    month = 10 * int(date_text[3]) + int(date_text[4])
-    year = 1000 * int(date_text[6]) + 100*int(date_text[7]) + 10*int(date_text[8]) + int(date_text[9])
-    shift = 10 * int(date_text[11]) + int(date_text[12])
-    date_array = [year, month, day, shift]
-    return date_array
-
-
 def extract_title_region_date(image):
     title = image.crop((338, 16, 560, 41))
-    title_text = pytesseract.image_to_string(title, lang='eng')[:-2]
+    title_text = pytesseract.image_to_string(title, lang='eng').strip()
 
     region = image.crop((84, 32, 149, 55))
-    region_text = pytesseract.image_to_string(region, lang='eng')[:-2]
+    region_text = pytesseract.image_to_string(region, lang='eng').strip().replace('0', 'O')
 
     date = image.crop((694, 64, 828, 84))
-    date_text = pytesseract.image_to_string(date, lang='eng')[:-2]
-    return_text = [title_text, region_text, date_text]
-    return return_text
-
-
-def export_csv_data(fname, starts_from, cloud, temperature, rain):
-    with open(fname, "w", newline="") as f:
-        writer = csv.writer(f)
-        date_start = datetime.datetime(starts_from[0], starts_from[1], starts_from[2], starts_from[3]) #year,month,day,hour
-
-        for i in range(0,72):
-            date_for_this_point = date_start+datetime.timedelta(hours=i)
-
-            stamped_data = (date_start, date_for_this_point, cloud[i], temperature[i], rain[i])
-            writer.writerow(stamped_data)
-
-
-def export_easy_to_read_data(fname, starts_from, cloud, temperature, rain):
-    with open(fname, "w", newline="") as f:
-        writer = csv.writer(f)
-        writer.writerow(["    datetime", "        cloud", "temperature", "rain"])
-        max_digit = 1
-        for accuracy in decimal_accuracy:
-            if(accuracy > max_digit):
-                max_digit = accuracy
-        max_digit += 4 #xx. -> additional 3
-
-        date_start = datetime.datetime(starts_from[0], starts_from[1], starts_from[2], starts_from[3]) #year,month,day,hour
-
-        for i in range(0,72):
-            date_for_this_point = date_start+datetime.timedelta(hours=i)
-            data_string = [str(cloud[i]), str(temperature[i]), str(rain[i])]
-            counter = 0
-            for string in data_string:
-               string = string + " "* ( (max_digit - len(string) ))
-               data_string[counter] = string
-               counter +=1
-            stamped_data = (date_for_this_point, "   "+data_string[0] , data_string[1], data_string[2])
-            writer.writerow(stamped_data)
+    date_text = pytesseract.image_to_string(date, lang='eng').strip().replace('O', '0')
+    return title_text, region_text, date_text
 
 
 def extract_meteogram_data(image):
     image_array = np.array(image)
 
-    texts = extract_title_region_date(image)
+    title_text, region_text, date_text = extract_title_region_date(image)
 
-    if(texts[0] != "WRF METEOGRAM"):
+    if(title_text != "WRF METEOGRAM"):
        raise ImageParseError("Image does not appear to be as expected. Text 'WRF METEOGRAM' not found.")
 
-    date_array = get_date_as_number(texts[2]) ## year, month, day, shift
+    current_dt = pd.to_datetime(date_text, format='%d/%m/%Y %H%Z')
+    dt = pd.date_range(current_dt, periods=72, freq='1H')
 
     cloud = extract_data(image_array, 0)
 
     temperature_pixels=extract_data(image_array, 1)
-    temperature = initiliaze_temperature_pixels (image_array, image, temperature_pixels)
+    temperature = scale_temperature_pixels(image_array, image, temperature_pixels)
 
     rain = extract_data(image_array, 2)
 
-    return date_array, cloud, temperature, rain
+    df = pd.DataFrame({'location': region_text,
+                       'current_dt': current_dt,
+                       'dt': dt,
+                       'cloud': cloud,
+                       'temperature': temperature,
+                       'rain': rain}, index=dt)
+
+    return df
 
 
 def main(argv=None):
@@ -203,9 +161,8 @@ def main(argv=None):
         file, ext = os.path.splitext(fname)
         logger.info("Processing file:" + fname)
         image = Image.open(fname)
-        date_array, cloud, temperature, rain = extract_meteogram_data(image)
-        export_csv_data(file+'.csv', date_array, cloud, temperature, rain)
-        export_easy_to_read_data(file+'.txt', date_array, cloud, temperature, rain)
+        df = extract_meteogram_data(image)
+        df.to_csv(file+'.csv', index=False)
 
 
 if __name__ == '__main__':
