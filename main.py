@@ -2,6 +2,7 @@
 ## email : erdemcanaz@gmail.com
 ## Modifications by Paul Brown
 ## https://github.com/user/pdb5627
+import string
 
 from PIL import Image
 import urllib.request
@@ -10,6 +11,10 @@ import pytesseract
 import os, sys
 import csv
 import datetime
+
+import logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 
 class ImageParseError(Exception):
@@ -27,41 +32,41 @@ def extract_data(image_array, which_data):
     #which_data-> 0: cloud 1:temp 2:rain
     return_data = []
 
-    temperature_counter = 0
     for x in horizontal_pixels: ###SCAN COLUMN-S
         is_zero = True
 
         for y in range (top_and_bottoms[which_data*2], top_and_bottoms[which_data*2 +1]): ###SCAN COLUMN
 
-            R = image_array[y][x][0]
-            G = image_array[y][x][1]
-            B = image_array[y][x][2]
+            R = int(image_array[y][x][0])
+            G = int(image_array[y][x][1])
+            B = int(image_array[y][x][2])
+            is_gray = abs(R - G) <= 10 and abs(G - B) <= 10
             #this condition not only considers white but olso all binary colors such as scale lines, time lines, anything black
-            if ( R!=G and G!=B):
-                if(which_data == 0): #cloud
+            if not is_gray:
+                if which_data == 0: #cloud
                     percentage_dec = (top_and_bottoms[1]-y) / (top_and_bottoms[1] - top_and_bottoms[0])
                     percentage_dec = round(percentage_dec, decimal_accuracy[0])
                     return_data.append(percentage_dec)
-                    is_zero = False
                     break
-                elif(which_data == 2): #rain
+                elif which_data == 2: #rain
                     rain_mm = (top_and_bottoms[5] - y) * mm_per_mSquare_per_px
                     rain_mm = round(rain_mm, decimal_accuracy[2])
                     return_data.append(rain_mm)
-                    is_zero = False
                     break
-            elif (R!=G and R!=B and which_data == 1):  # temperature
-                if (G < 120):
-                    return_data.append(y)
-                    temperature_counter += 1
-                    is_zero = False
-                    break
+                elif which_data == 1: # temperature
+                    # Look for just red line or red and green overlapping
+                    if R - G > 30 or (G > 160 and R / B > 1.5):
+                        return_data.append(y)
+                        break
         ####IF NO DATA IS FOUND
-        if (is_zero == True):
-            if( which_data == 1): #temperature
-                value_before_this = return_data[temperature_counter-1]
-                return_data.append(value_before_this)
-                temperature_counter += 1
+        else:
+            if which_data == 1: #temperature
+                if len(return_data) > 0:
+                    logger.warning(f'Point on temperature line not detected. Filling with previous value. x = {x} px')
+                    return_data.append(return_data[-1])
+                else:
+                    logger.warning(f'Point on temperature line not detected. Filling with NAN. x = {x} px')
+                    return_data.append(np.nan)
             else: #cloud & rain
                 return_data.append(0)
 
@@ -73,32 +78,46 @@ def initiliaze_temperature_pixels (image_array, image, temperature_pixel_data_ar
     temp_scale_top = 296
     temp_scale_bottom = 528
     vertical_candidates = []
+    values_of_temp_scale_lines = []
     for y in range(temp_scale_top, temp_scale_bottom):
-        R = image_array[y][temp_graph_left][0]
-        G = image_array[y][temp_graph_left][1]
-        B = image_array[y][temp_graph_left][2]
-        if ((R == G) and (G == B) and R < 250):
+        R = int(image_array[y][temp_graph_left][0])
+        G = int(image_array[y][temp_graph_left][1])
+        B = int(image_array[y][temp_graph_left][2])
+        is_gray = abs(R - G) <= 10 and abs(G - B) <= 10
+        if is_gray and R < 250:
+            line_y_coordinate = y
+            temp_scale = image.crop((40, line_y_coordinate - 10, 74, line_y_coordinate + 10))
+            # PSM modes: https://github.com/tesseract-ocr/tesseract/issues/434
+            temp_scale_text = pytesseract.image_to_string(temp_scale, config='--psm 7')
+            tbl = str.maketrans('O', '0', ',%!$' + string.ascii_lowercase + string.ascii_uppercase)
+            temp_scale_text = temp_scale_text.strip().translate(tbl)
+            try:
+                values_of_temp_scale_lines.append(float(temp_scale_text))
+            except ValueError:
+                continue
             vertical_candidates.append(y)
 
-    values_of_temp_scale_lines = []
-    for line_y_cordinate in vertical_candidates:
-        temp_scale = image.crop((40, line_y_cordinate - 10, 70, line_y_cordinate + 10))
-        # PSM modes: https://github.com/tesseract-ocr/tesseract/issues/434
-        temp_scale_text = pytesseract.image_to_string(temp_scale, config='--psm 7')[:-2]
-        values_of_temp_scale_lines.append(int(temp_scale_text))
-
+    # Sanity check on values. Values go top to bottom, so they should be decreasing.
+    pts = (0, len(values_of_temp_scale_lines)-1)  # Default to first and last point
+    if values_of_temp_scale_lines[0] <= values_of_temp_scale_lines[1] \
+            and len(values_of_temp_scale_lines) > 2 \
+            and values_of_temp_scale_lines[1] > values_of_temp_scale_lines[2]:
+        # Point 0 is bogus, use Points 1 and 2
+        pts = (1, 2)
     real_temperatures = []
-    dt = values_of_temp_scale_lines[0] - values_of_temp_scale_lines[1]
-    dpx = vertical_candidates[0] - vertical_candidates[1]
+    dt = values_of_temp_scale_lines[pts[0]] - values_of_temp_scale_lines[pts[1]]
+    dpx = vertical_candidates[pts[0]] - vertical_candidates[pts[1]]
     slope = dt / dpx
     for px in temperature_pixel_data_array:
-        val = (px - vertical_candidates[0]) * slope + values_of_temp_scale_lines[0]  # line equation
+        val = (px - vertical_candidates[pts[0]]) * slope + values_of_temp_scale_lines[pts[0]]  # line equation
         val = round(val, decimal_accuracy[1])
         real_temperatures.append(val)
     return real_temperatures
 
 
 def get_date_as_number(date_text):
+    # Sometimes a 0 might be misread as an O. There is no reason for an O to appear in this text, so change any Os to 0s
+    date_text = date_text.replace('O', '0')
     day = 10 * int(date_text[0]) + int(date_text[1])
     month = 10 * int(date_text[3]) + int(date_text[4])
     year = 1000 * int(date_text[6]) + 100*int(date_text[7]) + 10*int(date_text[8]) + int(date_text[9])
@@ -182,7 +201,7 @@ def main(argv=None):
 
     for fname in argv[1:]:
         file, ext = os.path.splitext(fname)
-
+        logger.info("Processing file:" + fname)
         image = Image.open(fname)
         date_array, cloud, temperature, rain = extract_meteogram_data(image)
         export_csv_data(file+'.csv', date_array, cloud, temperature, rain)
