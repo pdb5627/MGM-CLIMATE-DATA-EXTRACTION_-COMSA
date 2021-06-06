@@ -175,16 +175,22 @@ def extract_meteogram_data(image):
     return df
 
 
+def process_file(fname: str, write_csv: Optional[bool] = False):
+    file, ext = os.path.splitext(fname)
+    logger.info("Processing file:" + fname)
+    image = Image.open(fname)
+    df = extract_meteogram_data(image)
+    if write_csv:
+        df.to_csv(file + '.csv', index=False)
+    return df
+
+
 def main(argv=None):
     if argv is None:
         argv = sys.argv
 
     for fname in argv[1:]:
-        file, ext = os.path.splitext(fname)
-        logger.info("Processing file:" + fname)
-        image = Image.open(fname)
-        df = extract_meteogram_data(image)
-        df.to_csv(file+'.csv', index=False)
+        process_file(fname, write_csv=True)
 
 
 if __name__ == '__main__':
