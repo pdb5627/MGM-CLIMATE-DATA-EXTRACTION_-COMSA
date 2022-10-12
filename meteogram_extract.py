@@ -12,6 +12,8 @@ import os
 import sys
 from collections import namedtuple
 import pandas as pd
+import matplotlib.pyplot as plt
+import matplotlib.dates as mdates
 
 import logging
 logging.basicConfig(level=logging.INFO)
@@ -26,7 +28,9 @@ class ImageParseError(Exception):
 # All plots are aligned vertically
 left_edge = 75
 right_edge = 825
-horizontal_pixels = np.linspace(79, 820, 72).round().astype(int)
+horizontal_pixels_bar = np.linspace(79, 820, 72).round().astype(int)
+horizontal_pixels_line = np.linspace(76, 826, 72).round().astype(int)
+horizontal_pixels_line[-1] = right_edge - 1
 
 PlotAxis = namedtuple('PlotAxis', ['top', 'bot', 'left', 'right'])
 
@@ -59,7 +63,8 @@ def extract_data_new(image_array, ax: PlotAxis, masked: Optional[PlotAxis] = Non
     # Horizontal index based on what columns of the image we want to sample.
     # Sample lines three pixels left since the coordinates were calibrated to bar graphs, which show bars between
     # axis points.
-    cropped_array = image_array[ax.top:ax.bot, horizontal_pixels - (3 if kind == 'line' else 0)].astype(int)
+    cropped_array = image_array[ax.top:ax.bot, horizontal_pixels_line if kind == 'line' else
+                                               horizontal_pixels_bar].astype(int)
     # Image.fromarray(cropped_array.astype(np.uint8)).show() # Use for troubleshooting
     R = cropped_array[..., 0]
     G = cropped_array[..., 1]
@@ -73,7 +78,7 @@ def extract_data_new(image_array, ax: PlotAxis, masked: Optional[PlotAxis] = Non
 
     # Line charts: find the average of the appropriately colored pixels at each x value.
     elif kind == 'line':
-        color_match = ~is_gray & ((R - G > 30) | ((G > 160) & (R / B > 1.5)))
+        color_match = ~is_gray & ((R - G > 30) | ((G > 160) & (R / (B+1) > 1.5)))
         yval_px = mean_true_idx(color_match)
     else:
         raise NotImplementedError(f"Unknown plot kind '{kind}'")
@@ -92,7 +97,7 @@ def read_yscale(image_array, image, ax):
 
     vertical_candidates = []
     values_of_temp_scale_lines = []
-    tbl = str.maketrans('O', '0', ',%!$' + string.ascii_lowercase + string.ascii_uppercase)
+    tbl = str.maketrans('O—', '0-', ',%!$' + string.ascii_lowercase + string.ascii_uppercase)
     for tick in np.argwhere(ticks):
         line_y_coordinate = tick.item() + ax.top
 
@@ -103,9 +108,13 @@ def read_yscale(image_array, image, ax):
         temp_scale_text = pytesseract.image_to_string(temp_scale, config='--psm 7')
         temp_scale_text = temp_scale_text.strip().translate(tbl)
         try:
-            values_of_temp_scale_lines.append(float(temp_scale_text))
+            prospective_value = float(temp_scale_text)
         except ValueError:
             continue
+        # Sometimes tesseract might ignore a minus sign.
+        if values_of_temp_scale_lines and prospective_value > values_of_temp_scale_lines[-1] > -1*prospective_value:
+            prospective_value *= -1
+        values_of_temp_scale_lines.append(prospective_value)
         vertical_candidates.append(line_y_coordinate)
 
     # Sanity check on values. Values go top to bottom, so they should be decreasing.
@@ -168,20 +177,57 @@ def extract_meteogram_data(image):
     df = pd.DataFrame({'location': region_text,
                        'current_dt': current_dt,
                        'dt': dt,
-                       'cloud': cloud,
+                       'clouds': cloud,
                        'temperature': temp_real,
                        'rain': rain_real}, index=dt)
 
     return df
 
 
-def process_file(fname: str, write_csv: Optional[bool] = False):
+def process_file(fname: str, write_csv: Optional[bool] = False, plot: Optional[bool] = False):
     file, ext = os.path.splitext(fname)
     logger.info("Processing file:" + fname)
     image = Image.open(fname)
     df = extract_meteogram_data(image)
     if write_csv:
         df.to_csv(file + '.csv', index=False)
+
+    if plot:
+        fig = plt.figure(figsize=(5.3, 7.5))
+        ax1 = fig.add_subplot(7, 1, (1, 2))
+        ax2 = fig.add_subplot(7, 1, (3, 5))
+        ax3 = fig.add_subplot(7, 1, (6, 7))
+        fig.tight_layout(h_pad=3)
+        plt.subplots_adjust(top=0.9)
+
+        # TODO: Add current_dt to the figure somewhere
+        ax1.bar(df.index, df['cloud']*100, align='edge', width=1/24*0.8, color='#b2b9f6', edgecolor='#4051e9')
+        ax2.plot(df.index, df['temperature'], color='#FF000099')
+        ax3.bar(df.index, df['rain'], align='edge', width=1/24*0.8, color='#b2b9f6', edgecolor='#4051e9')
+
+        ax1.set_ylim(0, 100)
+        ax3.set_ylim(0, 6.25)
+        ax2.yaxis.grid(which='major', linestyle=':')
+        # Due to edge alignment of bar chart, it needs an extra period at the right in order not to cut off the last bar
+        ax1.set_xlim(df.index[0], df.index[-1] + pd.to_timedelta('59.9min'))
+        ax2.set_xlim(df.index[0], df.index[-1])
+        ax3.set_xlim(df.index[0], df.index[-1] + pd.to_timedelta('59.9min'))
+
+        ax1.set_title('Cloud Cover (%)')
+        ax2.set_title('Temperature (°C)')
+        ax3.set_title('Hourly Rainfall (mm)')
+
+        for ax in (ax1, ax2, ax3):
+            ax.tick_params(which='both', direction='in')
+            ax.xaxis.set_major_locator(mdates.DayLocator())
+            ax.xaxis.set_minor_locator(mdates.HourLocator([6, 12, 18]))
+            ax.xaxis.set_major_formatter(mdates.DateFormatter('%a'))
+            ax.xaxis.set_minor_formatter(mdates.DateFormatter('%H'))
+            ax.xaxis.grid(which='major', linestyle='-')
+            ax.xaxis.grid(which='minor', linestyle=':')
+        plt.savefig(file + '_digitized.png')
+        #plt.show()
+        plt.close()
     return df
 
 
@@ -190,8 +236,9 @@ def main(argv=None):
         argv = sys.argv
 
     for fname in argv[1:]:
-        process_file(fname, write_csv=True)
+        df = process_file(fname, write_csv=True, plot=False)
 
 
 if __name__ == '__main__':
     sys.exit(main())
+
