@@ -147,7 +147,8 @@ def extract_title_region_date(image):
     region_text = pytesseract.image_to_string(region, lang='eng').strip().replace('0', 'O')
 
     date = image.crop((694, 64, 828, 84))
-    date_text = pytesseract.image_to_string(date, lang='eng').strip().replace('O', '0')
+    date_text = pytesseract.image_to_string(date, lang='eng',
+                                            config='--psm 7 -c tessedit_char_whitelist="0123456789 /GMT"').strip()
     return title_text, region_text, date_text
 
 
