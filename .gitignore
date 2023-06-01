@@ -124,8 +124,9 @@ dmypy.json
 # Pyre type checker
 .pyre/
 
-# PyCharm
-.idea
+# IDE settings
+.vscode/
+.idea/
 
 # LibreOffice
 *.~lock*

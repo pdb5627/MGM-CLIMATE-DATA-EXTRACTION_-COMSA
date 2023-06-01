@@ -1,0 +1,15 @@
+name: meteogram
+channels:
+  - defaults
+  - conda-forge
+dependencies:
+  - pillow
+  - pytesseract
+  - numpy
+  - tesseract
+  - pandas
+  - matplotlib
+  - pip
+  pip:
+  - click
+prefix: /home/pdb/miniconda3/envs/meteogram

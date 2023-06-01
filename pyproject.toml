@@ -1,0 +1,42 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "meteogram_extract"
+
+version = "0.1.0"
+authors = [
+  { name="Erdem Canaz"},
+  { name="Paul Brown"},
+]
+description = "."
+readme = "README.md"
+requires-python = ">=3.7"
+dependencies =[
+    "pillow",
+    "pytesseract",
+    "numpy",
+    "pandas",
+    "matplotlib",
+    "click",
+]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+]
+
+[project.scripts]
+meteogram_extract = "meteogram_extract.cli:cli"
+
+[project.urls]
+"Homepage" = "https://github.com/pdb5627/meteogram_extract"
+"Bug Tracker" = "https://github.com/pdb5627/meteogram_extract/issues"
+
+[tool.isort]
+multi_line_output = 3
+include_trailing_comma = true
+force_grid_wrap = 0
+line_length = 120
+profile = "black"

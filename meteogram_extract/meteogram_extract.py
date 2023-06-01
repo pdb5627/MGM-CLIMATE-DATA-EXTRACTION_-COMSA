@@ -237,27 +237,3 @@ def process_file(fname: str, write_csv: Optional[bool] = False, plot: Optional[b
     return df
 
 
-def main(argv=None):
-    if argv is None:
-        argv = sys.argv
-
-    files_with_errors = []
-
-    for fname in argv[1:]:
-        try:
-            df = process_file(fname, write_csv=True, plot=False)
-        except SystemExit:
-            break
-        except Exception as e:
-            _log.error(f"Failed to process {fname}.", exc_info=True)
-            files_with_errors.append(fname)
-
-    if files_with_errors:
-        _log.info(f"Failures to process the following files:")
-        for fname in files_with_errors:
-            _log.info(fname)
-
-
-if __name__ == '__main__':
-    sys.exit(main())
-
