@@ -17,7 +17,7 @@ import matplotlib.dates as mdates
 
 import logging
 logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+_log = logging.getLogger(__name__)
 
 
 class ImageParseError(Exception):
@@ -88,31 +88,36 @@ def extract_data_new(image_array, ax: PlotAxis, masked: Optional[PlotAxis] = Non
 
 
 def read_yscale(image_array, image, ax):
-    # Identify tick marks by color
-    cropped_array = image_array[ax.top:ax.bot, ax.left+5].astype(int)
+    # Identify tick marks by color and darkness
+    cropped_array = image_array[(ax.top+1):ax.bot, (ax.left+1):(ax.left+5)].astype(int)
     R = cropped_array[..., 0]
     G = cropped_array[..., 1]
     B = cropped_array[..., 2]
-    ticks = (abs(R - G) <= 10) & (abs(G - B) <= 10) & (R < 250)
+    ticks = (abs(R - G) <= 10) & (abs(G - B) <= 10) & (R < 250) & (G < 250)
+    ticks = ticks.any(axis=1)
 
     vertical_candidates = []
     values_of_temp_scale_lines = []
     tbl = str.maketrans('O—', '0-', ',%!$' + string.ascii_lowercase + string.ascii_uppercase)
     for tick in np.argwhere(ticks):
-        line_y_coordinate = tick.item() + ax.top
+        line_y_coordinate = tick.item() + ax.top + 1
 
         temp_scale = image.crop((ax.left - 35, line_y_coordinate - 10, ax.left - 1, line_y_coordinate + 10))
         # Upsampling the image seems to help tesseract recognize numbers better
         temp_scale = temp_scale.resize([2*d for d in temp_scale.size])
+        if _log.getEffectiveLevel() <= 10:
+            temp_scale.show()
         # PSM modes: https://github.com/tesseract-ocr/tesseract/issues/434
         temp_scale_text = pytesseract.image_to_string(temp_scale, config='--psm 7')
         temp_scale_text = temp_scale_text.strip().translate(tbl)
         try:
             prospective_value = float(temp_scale_text)
+            _log.debug(f"{line_y_coordinate=}, {prospective_value=}")
         except ValueError:
             continue
         # Sometimes tesseract might ignore a minus sign.
         if values_of_temp_scale_lines and prospective_value > values_of_temp_scale_lines[-1] > -1*prospective_value:
+            _log.debug(f"Inverting prospective value ({prospective_value} -> ({-prospective_value}))")
             prospective_value *= -1
         values_of_temp_scale_lines.append(prospective_value)
         vertical_candidates.append(line_y_coordinate)
@@ -187,7 +192,7 @@ def extract_meteogram_data(image):
 
 def process_file(fname: str, write_csv: Optional[bool] = False, plot: Optional[bool] = False):
     file, ext = os.path.splitext(fname)
-    logger.info("Processing file:" + fname)
+    _log.info(f"Processing file: {fname}")
     image = Image.open(fname)
     df = extract_meteogram_data(image)
     if write_csv:
@@ -236,8 +241,21 @@ def main(argv=None):
     if argv is None:
         argv = sys.argv
 
+    files_with_errors = []
+
     for fname in argv[1:]:
-        df = process_file(fname, write_csv=True, plot=False)
+        try:
+            df = process_file(fname, write_csv=True, plot=False)
+        except SystemExit:
+            break
+        except Exception as e:
+            _log.error(f"Failed to process {fname}.", exc_info=True)
+            files_with_errors.append(fname)
+
+    if files_with_errors:
+        _log.info(f"Failures to process the following files:")
+        for fname in files_with_errors:
+            _log.info(fname)
 
 
 if __name__ == '__main__':
